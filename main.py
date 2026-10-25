@@ -11,6 +11,7 @@ import sys
 import os
 import argparse
 import time
+import numpy as np
 
 from src.source_coding import SaturatedSource, BinaryConverter, LZWCodec
 from src.channel_coding import LDPCCodec, PolarCodec, HammingCodec
@@ -30,7 +31,7 @@ def print_banner():
     print(banner)
 
 
-def demonstrate_single_transmission():
+def demonstrate_single_transmission(snr_db: float = 4.0):
     """
     Demonstrate end-to-end live pipeline with exact original vs reconstructed verification.
     """
@@ -84,9 +85,9 @@ def demonstrate_single_transmission():
     print(f"      Post-FEC Errors: 0 / {len(source_encoded_bits)} | BER: 0.0000")
     print(f"      Exact Information Recovery: {exact_lossless} [PERFECT LOSSLESS RESTORATION]")
 
-    # Case B: Realistic Noisy Wired Channel (AWGN at Eb/N0 = 4.0 dB)
-    snr_test = 4.0
-    print(f"\n  --- CASE B: Realistic Wired AWGN Link (Eb/N0 = {snr_test} dB) ---")
+    # Case B: Realistic Noisy Wired Channel (AWGN at specified Eb/N0)
+    snr_test = float(snr_db)
+    print(f"\n  --- CASE B: Realistic Wired AWGN Link (Eb/N0 = {snr_test:.1f} dB) ---")
     rx_hard, rx_soft, rx_llrs, sigma = channel.transmit_awgn(tx_bits, eb_no_db=snr_test, code_rate=ldpc.rate)
     pre_fec_eval = PerformanceEvaluator.calculate_ber(tx_bits, rx_hard)
     print(f"      Noise std dev sigma: {sigma:.4f}")
@@ -96,7 +97,7 @@ def demonstrate_single_transmission():
     # Case C: Uncoded transmission baseline over the same channel
     rx_uncoded_hard, _, _, _ = channel.transmit_awgn(source_encoded_bits, eb_no_db=snr_test, code_rate=1.0)
     uncoded_eval = PerformanceEvaluator.calculate_ber(source_encoded_bits, rx_uncoded_hard)
-    print(f"\n  --- COMPARISON: Uncoded Wired Transmission at Eb/N0 = {snr_test} dB ---")
+    print(f"\n  --- COMPARISON: Uncoded Wired Transmission at Eb/N0 = {snr_test:.1f} dB ---")
     print(f"      Uncoded Received Bit Errors: {uncoded_eval['bit_errors']} / {uncoded_eval['total_bits']} bits")
     print(f"      Uncoded BER: {uncoded_eval['ber']:.4e}")
 
@@ -106,17 +107,104 @@ def demonstrate_single_transmission():
     post_fec_eval = PerformanceEvaluator.calculate_ber(source_encoded_bits, dec_bits)
     print(f"      Post-FEC Residual Errors: {post_fec_eval['bit_errors']} / {post_fec_eval['total_bits']} bits")
     print(f"      Post-FEC Bit Error Rate: {post_fec_eval['ber']:.4e}")
-    print(f"      Coding Error Suppression Gain: {pre_fec_eval['ber'] / max(post_fec_eval['ber'], 1e-12):.1f}x reduction")
+    if post_fec_eval['ber'] > 0:
+        gain_str = f"{pre_fec_eval['ber'] / max(post_fec_eval['ber'], 1e-12):.1f}x reduction"
+    else:
+        gain_str = "Infinite (All channel errors corrected)"
+    print(f"      Coding Error Suppression Gain: {gain_str}")
 
     # 7. Source Reconstruction
     print(f"\n[7] SOURCE DECODING & RECONSTRUCTION:")
-    reconstructed_text = lzw.decode(dec_bits, return_as_string=True)
+    try:
+        reconstructed_text = lzw.decode(dec_bits, return_as_string=True)
+    except Exception as e:
+        reconstructed_text = f"[LZW DECODING EXCEPTION: {e}]"
     exact_recovery = (reconstructed_text == telemetry_stream)
     print(f"      Reconstructed Text Length: {len(reconstructed_text)} chars")
     print(f"      Reconstructed Excerpt: \"{reconstructed_text[:80]}...\"")
     print(f"      Exact Bit-for-Bit Recovery: {exact_recovery}")
     if exact_recovery:
         print("      SUCCESS: The LDPC decoder eradicated all channel errors, enabling 100% exact source restoration!")
+    else:
+        print("      NOTICE: Residual channel errors prevented exact LZW dictionary alignment. Error suppression was effective, but recovery requires higher SNR (e.g. Eb/N0 >= 7.0 dB) or retransmission.")
+
+
+def run_multi_trial_experiment(eb_no_db: float = 4.0, num_trials: int = 10, seed: int = 42):
+    """
+    Run repeatable multi-trial experiment measuring empirical pre-FEC BER, post-FEC BER,
+    Frame Error Rate (FER), and exact-recovery rate across multiple independent channel-noise realizations.
+    """
+    print("\n" + "="*80)
+    print(f"REPEATABLE MULTI-TRIAL EXPERIMENT (Eb/N0 = {eb_no_db:.1f} dB, Trials = {num_trials}, Seed = {seed})")
+    print("="*80)
+
+    # 1. Source and encoder setup
+    source = SaturatedSource(seed=seed)
+    telemetry_stream = source.generate_text_stream(num_packets=3)
+    lzw = LZWCodec(bit_depth=12)
+    source_encoded_bits, _ = lzw.encode(telemetry_stream)
+
+    ldpc = LDPCCodec(n=64, k=32, max_iter=25, algorithm="sum_product", seed=seed)
+    tx_bits, pad_len = ldpc.encode(source_encoded_bits)
+    num_blocks = len(tx_bits) // ldpc.n
+
+    # 2. Independent channel realizations
+    channel = WiredChannel(seed=seed)
+
+    pre_fec_errors_total = 0
+    post_fec_errors_total = 0
+    total_tx_bits = num_trials * len(tx_bits)
+    total_info_bits = num_trials * len(source_encoded_bits)
+    block_errors_total = 0
+    total_blocks = num_trials * num_blocks
+    exact_recoveries = 0
+
+    padded_tx = np.concatenate([source_encoded_bits, np.zeros(pad_len, dtype=np.uint8)]) if pad_len > 0 else source_encoded_bits
+
+    print(f"  Simulating {num_trials} independent channel realizations ({num_blocks} LDPC blocks/trial)...")
+    for trial in range(num_trials):
+        rx_hard, rx_soft, _, sigma = channel.transmit_awgn(tx_bits, eb_no_db=eb_no_db, code_rate=ldpc.rate)
+        pre_eval = PerformanceEvaluator.calculate_ber(tx_bits, rx_hard)
+        pre_fec_errors_total += pre_eval['bit_errors']
+
+        dec_bits = ldpc.decode(rx_soft, pad_len=pad_len, channel_type="awgn", sigma=sigma)
+        post_eval = PerformanceEvaluator.calculate_ber(source_encoded_bits, dec_bits)
+        post_fec_errors_total += post_eval['bit_errors']
+
+        # Count block (frame) errors
+        padded_dec = np.concatenate([dec_bits, np.zeros(pad_len, dtype=np.uint8)]) if pad_len > 0 else dec_bits
+        for b in range(num_blocks):
+            blk_tx = padded_tx[b * ldpc.k : (b + 1) * ldpc.k]
+            blk_dec = padded_dec[b * ldpc.k : (b + 1) * ldpc.k]
+            if not np.array_equal(blk_tx, blk_dec):
+                block_errors_total += 1
+
+        # Check exact string reconstruction
+        try:
+            rec_text = lzw.decode(dec_bits, return_as_string=True)
+            if rec_text == telemetry_stream:
+                exact_recoveries += 1
+        except Exception:
+            pass
+
+    mean_pre_ber = pre_fec_errors_total / total_tx_bits
+    mean_post_ber = post_fec_errors_total / total_info_bits
+    fer = block_errors_total / total_blocks
+    exact_recovery_rate = exact_recoveries / num_trials
+
+    print("\n  RESULTS SUMMARY:")
+    print(f"    Channel SNR (Eb/N0):            {eb_no_db:.1f} dB")
+    print(f"    Independent Trials:             {num_trials}")
+    print(f"    Total Codeword Bits Evaluated:  {total_tx_bits}")
+    print(f"    Total Information Bits:         {total_info_bits}")
+    print(f"    Average Pre-FEC Channel BER:    {mean_pre_ber:.4e} ({pre_fec_errors_total} / {total_tx_bits})")
+    print(f"    Average Post-FEC Residual BER:  {mean_post_ber:.4e} ({post_fec_errors_total} / {total_info_bits})")
+    print(f"    Frame Error Rate (FER):         {fer:.4e} ({block_errors_total} / {total_blocks} blocks)")
+    print(f"    Exact Recovery Rate:            {exact_recovery_rate * 100:.1f}% ({exact_recoveries} / {num_trials} trials)")
+    if mean_post_ber > 0:
+        print(f"    Empirical Error Reduction Gain: {mean_pre_ber / mean_post_ber:.1f}x")
+    else:
+        print("    Empirical Error Reduction Gain: Infinite (Zero residual errors across all trials)")
 
 
 def run_full_suite():
@@ -145,6 +233,9 @@ def run_full_suite():
 def main():
     parser = argparse.ArgumentParser(description="ITC Wired Communication System Simulation (Reg: 23BCE7551)")
     parser.add_argument("--demo", action="store_true", help="Run live end-to-end single transmission demo")
+    parser.add_argument("--snr", type=float, default=4.0, help="Channel SNR (Eb/N0 in dB) for demo (default: 4.0 dB)")
+    parser.add_argument("--multi-trial", action="store_true", help="Run repeatable multi-trial experiment across multiple noise realizations")
+    parser.add_argument("--trials", type=int, default=10, help="Number of trials for multi-trial experiment (default: 10)")
     parser.add_argument("--experiments", action="store_true", help="Run full Monte Carlo experiments and generate plots")
     parser.add_argument("--all", action="store_true", help="Run both demo and full experiments")
 
@@ -152,13 +243,18 @@ def main():
 
     print_banner()
 
-    if args.demo:
-        demonstrate_single_transmission()
+    if args.multi_trial:
+        run_multi_trial_experiment(eb_no_db=args.snr, num_trials=args.trials, seed=42)
+    elif args.demo:
+        demonstrate_single_transmission(snr_db=args.snr)
     elif args.experiments:
+        run_full_suite()
+    elif args.all:
+        demonstrate_single_transmission(snr_db=args.snr)
         run_full_suite()
     else:
         # Default run both
-        demonstrate_single_transmission()
+        demonstrate_single_transmission(snr_db=args.snr)
         run_full_suite()
 
 
