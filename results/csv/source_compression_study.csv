@@ -1,0 +1,6 @@
+source_type,empirical_entropy_bits,raw_bits,compressed_bits,compression_ratio,space_saving_pct,lossless_exact_recovery
+Structured Telemetry Stream,4.7612,5216,4680,1.115,10.28,True
+"Correlated Markov (p01=0.05, p10=0.05)",0.9996,8192,4860,1.686,40.67,True
+"Correlated Markov (p01=0.10, p10=0.20)",0.9228,8192,7956,1.03,2.88,True
+"Correlated Markov (p01=0.25, p10=0.25)",0.9996,8192,10944,0.749,-33.59,True
+Uniform Pseudo-Random Bits (H ~ 1),1.0,8192,12096,0.677,-47.66,True
