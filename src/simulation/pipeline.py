@@ -106,7 +106,7 @@ class CommunicationPipeline:
         if self.channel_codec is not None:
             if channel_mode == "awgn":
                 decoded_source_bits = self.channel_codec.decode(
-                    rx_llrs, pad_len=pad_len, channel_type="awgn", sigma=channel_info.get('sigma', 0.5)
+                    rx_soft, pad_len=pad_len, channel_type="awgn", sigma=channel_info.get('sigma', 0.5)
                 )
             elif channel_mode == "bsc":
                 decoded_source_bits = self.channel_codec.decode(

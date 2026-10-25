@@ -102,7 +102,7 @@ def demonstrate_single_transmission():
 
     # 6. Channel Decoding via Belief Propagation
     print(f"\n[6] CHANNEL DECODING (Iterative Log-Domain Belief Propagation):")
-    dec_bits = ldpc.decode(rx_llrs, pad_len=pad_len, channel_type="awgn", sigma=sigma)
+    dec_bits = ldpc.decode(rx_soft, pad_len=pad_len, channel_type="awgn", sigma=sigma)
     post_fec_eval = PerformanceEvaluator.calculate_ber(source_encoded_bits, dec_bits)
     print(f"      Post-FEC Residual Errors: {post_fec_eval['bit_errors']} / {post_fec_eval['total_bits']} bits")
     print(f"      Post-FEC Bit Error Rate: {post_fec_eval['ber']:.4e}")
