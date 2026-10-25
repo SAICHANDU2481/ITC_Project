@@ -1,9 +1,8 @@
 """
 Streamlit Web Application for Information Theory & Channel Coding (ITC)
 Wired Communication System Simulation
-Student: Aravind | Registration Number: 23BCE7551
 Institution: School of Computer Science and Engineering, VIT-AP University
-Track: Wired Network (Terminal Digit 1)
+Track: Wired Network Communication System
 """
 
 import os
@@ -34,7 +33,7 @@ from src.simulation import CommunicationPipeline, ExperimentRunner
 # Page Configuration & Modern Theme Styling
 # -----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Wired Communication Simulation | 23BCE7551",
+    page_title="Wired Communication System Simulation",
     page_icon="📡",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -115,9 +114,7 @@ st.markdown("""
             </p>
         </div>
         <div style="margin-top: 10px;">
-            <span class="badge badge-primary">Student: Aravind</span>
-            <span class="badge badge-accent">Reg: 23BCE7551</span>
-            <span class="badge badge-success">Assignment: Wired Network (Digit 1)</span>
+            <span class="badge badge-success">Assignment: Wired Network</span>
         </div>
     </div>
 </div>
@@ -150,7 +147,7 @@ random_bits_count = 512
 if source_mode == "Custom ASCII Text":
     custom_text = st.sidebar.text_area(
         "Payload Text",
-        value="VIT-AP University 23BCE7551: Saturated wireline communication link payload demonstration.",
+        value="VIT-AP University: Saturated wireline communication link payload demonstration.",
         height=80
     )
 elif source_mode == "Structured Telemetry (Saturated)":
@@ -537,7 +534,7 @@ with tab_downloads:
         st.markdown("### 📄 IEEE Conference Research Paper (PDF)")
         st.markdown("""
         * **Paper Title:** *Performance Analysis and Implementation of Modern Channel Coding for High-Speed Saturated Wired Communication Systems*
-        * **Author:** Aravind (Registration Number: 23BCE7551)
+        * **Track:** Wired Network Communication Systems
         * **Institution:** School of Computer Science and Engineering, VIT-AP University
         * **Format:** IEEE Conference 2-Column Standard (Compiled with ReportLab)
         * **Status:** Verified, compiled, and matches experimental curves.
@@ -550,11 +547,11 @@ with tab_downloads:
             st.download_button(
                 label="📥 Download 6-Page IEEE Conference Paper (PDF)",
                 data=pdf_bytes,
-                file_name="IEEE_Conference_Paper_23BCE7551_Aravind.pdf",
+                file_name="IEEE_Conference_Paper_Wired_Communication.pdf",
                 mime="application/pdf"
             )
         else:
-            st.error("Paper PDF file not found at paper/IEEE_Conference_Paper_23BCE7551.pdf")
+            st.error("Paper PDF file not found at paper directory.")
 
     with col_p2:
         st.markdown("### 📊 Empirical CSV Measurement Datasets")
