@@ -1,45 +1,73 @@
-# Modern Channel Coding for Saturated Wired Communication Systems
+# Wireless Communication System Simulation
 
 **Course Project:** Information Theory and Channel Coding (ITC)  
-**Student Name:** Aravind  
-**Student Registration Number:** 23BCE7551  
-**Assignment Rule:** Registration ends in odd digit `1` &rarr; **WIRED NETWORK**  
-**Institution:** School of Computer Science and Engineering, VIT-AP University  
+**System Type:** Wireless Network Digital Communication System  
+**Techniques:** Lossless Arithmetic & LZW Source Coding + IEEE 802.3an LDPC Channel Coding + BPSK Modulation + TCP Stream Sockets over Wi-Fi  
 
 ---
 
-## 1. Project Overview & Teacher Instruction Analysis
+## 1. Project Overview & Operational Modes
 
-Based on the handwritten instructions:
-- **Source Specification:** Saturated source continuously emitting information.
-- **Source Coding:** Modern adaptive technique &mdash; Lempel-Ziv-Welch (LZW) universal dictionary coding &mdash; avoiding obsolete static Huffman or Shannon-Fano tables.
-- **Assignment Mapping:** Odd terminal digit (`1` in `23BCE7551`) designates the **Wired Network** track.
-- **Resolution of Teacher's "Lossless Channel" Reference:**
-  - In classical Shannon information theory, a "lossless channel" exhibits zero equivocation ($H(X|Y) = 0$), implying that transmission is completely free of bit errors ($\text{BER} = 0$). If a physical channel were strictly lossless, channel coding would be superfluous, and Bit Error Rate (BER) analysis would yield a trivial zero across all configurations.
-  - In real-world physical wired systems (such as **10GBASE-T Ethernet IEEE Std 802.3an**, high-speed copper backplanes, and PON wireline access links), transmission lines suffer from thermal additive white Gaussian noise (AWGN), high-frequency attenuation, and crosstalk, creating high raw pre-FEC error rates ($10^{-3}$ to $10^{-1}$).
-  - In modern engineering, forward error correction (specifically **Low-Density Parity-Check (LDPC)** codes in IEEE 802.3an and **Polar Codes** in high-speed interconnects) is deployed precisely to transform a noisy physical link into an **effectively lossless** logical communication channel (post-FEC $\text{BER} < 10^{-12}$).
-  - To rigorously satisfy the curriculum, this project provides a dual-model evaluation: an ideal lossless channel baseline ($p=0, \sigma \to 0$) verifying exact 100% data reconstruction, alongside physical electrical AWGN and Binary Symmetric Channel (BSC) models where the error-correcting waterfall behavior is empirically demonstrated.
+This project implements an end-to-end digital wireless communication system in Python and Streamlit, bridging theoretical information theory with practical network communication. The system features three distinct operational modes:
+
+### Mode A — Live Wireless Message Transmission
+Enables interactive point-to-point wireless transmission over a local Wi-Fi or loopback network:
+* A user composes a UTF-8 text message on the **Live Message Sender** interface.
+* The message undergoes **lossless source coding** (finite-precision Arithmetic Coding or LZW universal dictionary coding).
+* The compressed bitstream is protected with systematic **IEEE 802.3an $(64, 32)$ Low-Density Parity-Check (LDPC)** Forward Error Correction (FEC).
+* The data is packaged into a **versioned binary wire frame** protected by an IEEE 802.3 **CRC32 checksum**.
+* The frame is transmitted across the local Wi-Fi network over a TCP stream socket.
+* The **Live Receiver** parses the frame, verifies the checksum, performs LDPC syndrome validation, decompresses the payload, reconstructs the exact message, and returns an explicit acknowledgment (ACK) frame confirming delivery.
+
+### Mode B — Continuous Wireless Source Streamer
+Simulates continuous telecommunication telemetry broadcasting:
+* Successive information frames are generated at configurable intervals (0.1s to 2.0s) and frame sizes.
+* Employs a **bounded FIFO queue** with backpressure monitoring to prevent memory leaks and buffer bloat.
+* Tracks live metrics: generated frames, transmitted frames, acknowledged frames, dropped frames, and real-time throughput (bps and fps).
+* Supports thread-safe, graceful cancellation.
+
+### Mode C — Wireless Physical Channel Simulation
+Simulates the physical layer impairments of an analog wireless channel:
+* Baseband **Binary Phase Shift Keying (BPSK)** modulation: $b_i = 0 \to +1.0\text{ V}, b_i = 1 \to -1.0\text{ V}$.
+* Wireless **Additive White Gaussian Noise (AWGN)** channel with exact variance scaling:
+  $$\sigma = \frac{1}{\sqrt{2 R \cdot 10^{(E_b/N_0)_{\text{dB}} / 10}}}$$
+* Soft demodulation computing log-likelihood ratios: $L_i = \frac{2}{\sigma^2} y_i$.
+* Iterative log-domain **Sum-Product Belief Propagation** LDPC decoding over the bipartite Tanner graph.
+* Direct side-by-side comparison against an uncoded transmission baseline over the exact same channel realization.
+* Multi-trial Monte Carlo Bit Error Rate (BER) versus $E_b/N_0$ waterfall curve generation and CSV export.
+
+> [!IMPORTANT]
+> **Critical Architectural Distinction:**  
+> TCP sockets over local Wi-Fi provide reliable, ordered application-level transport with automatic ARQ. Real-world TCP measurements do not represent raw physical-layer bit error rates. Therefore, physical-layer noise injection and belief-propagation decoding are evaluated strictly in **Mode C (Channel Simulation)**, isolated from TCP transport.
 
 ---
 
-## 2. System Architecture
-
-The modular transmitter-to-receiver pipeline operates through the following discrete stages:
+## 2. End-to-End Pipeline Architecture
 
 ```mermaid
-flowchart LR
-    S[Saturated Source<br/>Telemetry/Markov] --> B[Binary Converter<br/>ASCII Serialization]
-    B --> SE[Source Encoder<br/>LZW 12-bit Dictionary]
-    SE --> CE[Channel Encoder<br/>IEEE 802.3an LDPC / Polar / Hamming]
-    CE --> CH[Wired Channel Model<br/>Lossless / AWGN / BSC]
-    CH --> CD[Channel Decoder<br/>Log-Domain Belief Propagation]
-    CD --> SD[Source Decoder<br/>LZW Decompression]
-    SD --> R[Reconstructed Info<br/>Exact String Match]
-    
-    CE -.-> EVAL[Performance Evaluator<br/>Pre/Post BER, FER, Coding Gain]
-    CH -.-> EVAL
-    CD -.-> EVAL
-    SD -.-> EVAL
+flowchart TD
+    subgraph Transmitter ["1. Transmitter"]
+        MSG["Original Message<br/>(UTF-8 Text)"] --> BCONV["Binary Serializer<br/>(Bytes & Bits)"]
+        BCONV --> SCODEC["Lossless Source Encoder<br/>(Arithmetic Coding / LZW)"]
+        SCODEC --> CFEC["Channel Encoder<br/>(IEEE 802.3an LDPC 64,32)"]
+        CFEC --> FRAME["Frame Construction<br/>(Header + CRC32)"]
+    end
+
+    subgraph Transport ["2. Communication Transport"]
+        FRAME -->|"Mode A & B: Network Socket"| NET["TCP/IP Stream over Local Wi-Fi<br/>(Port 8550)"]
+        FRAME -->|"Mode C: Physical Simulation"| BPSK["BPSK Modulation<br/>(s = 1 - 2b)"]
+        BPSK --> AWGN["Wireless AWGN Link<br/>(Noise n ~ N(0, σ²))"]
+        AWGN --> SDEMOD["Soft Demodulation<br/>(LLR = 2y / σ²)"]
+    end
+
+    subgraph Receiver ["3. Receiver"]
+        NET --> RPARSE["Frame Parsing & CRC32 Verification"]
+        SDEMOD --> RLDPC["Iterative LDPC Decoder<br/>(Belief Propagation)"]
+        RPARSE --> RLDPC
+        RLDPC --> RSRC["Lossless Source Decoder<br/>(Inverse Arithmetic / LZW)"]
+        RSRC --> RECMSG["Reconstructed Message<br/>(Exact Fidelity Check)"]
+        RPARSE -.->|"Acknowledgment (ACK)"| NET
+    end
 ```
 
 ---
@@ -48,276 +76,227 @@ flowchart LR
 
 ```
 ITC project/
-├── README.md                      # Comprehensive project documentation
-├── requirements.txt               # Python dependencies (numpy, matplotlib, reportlab, pytest)
-├── main.py                        # Main entry point (CLI demo & experiment runner)
-├── src/                           # Modular simulation package
-│   ├── __init__.py
-│   ├── source_coding/             # Saturated source & LZW dictionary codec
-│   │   ├── __init__.py
-│   │   ├── saturated_source.py    # Continuous telemetry & Markov bitstream generator
-│   │   ├── binary_converter.py    # UTF-8 and integer bit packing/unpacking
-│   │   └── lzw_codec.py           # Universal adaptive LZW compressor/decompressor
-│   ├── channel_coding/            # Forward Error Correction (FEC) codecs
-│   │   ├── __init__.py
-│   │   ├── base.py                # Abstract ChannelCodec base class & block segmentation
-│   │   ├── ldpc_codec.py          # Systematic LDPC with Belief Propagation & Min-Sum
-│   │   ├── polar_codec.py         # Systematic Polar code with Successive Cancellation (SC)
-│   │   └── linear_block_codec.py  # Systematic Hamming(7,4) wireline benchmark
-│   ├── channel_model/             # Physical wired channel impairments
-│   │   ├── __init__.py
-│   │   ├── wired_channel.py       # Lossless, electrical AWGN (BPSK), and BSC models
-│   │   └── channel_analyzer.py    # Shannon capacity and error burst analytics
-│   ├── metrics/                   # Performance evaluation
-│   │   ├── __init__.py
-│   │   └── evaluator.py           # Pre/post-FEC BER, FER, coding gain, text accuracy
-│   └── simulation/                # Simulation drivers
-│       ├── __init__.py
-│       ├── pipeline.py            # End-to-end transmission pipeline orchestrator
-│       └── experiment_runner.py   # Monte Carlo sweeps, CSV logger, & Matplotlib plotter
-├── tests/                         # Automated unit & integration tests (20 passing)
-│   ├── __init__.py
-│   ├── test_source_coding.py
-│   ├── test_channel_coding.py
-│   ├── test_channel_model.py
-│   └── test_pipeline.py
-├── results/                       # Empirical experimental output
-│   ├── csv/                       # Generated CSV measurement datasets
-│   │   ├── awgn_ber_comparison.csv
-│   │   ├── bsc_ber_comparison.csv
-│   │   └── source_compression_study.csv
-│   └── plots/                     # Publication-grade figures (PNG, 300 DPI)
-│       ├── fig1_awgn_ber_curves.png
-│       ├── fig2_bsc_ber_curves.png
-│       ├── fig3_pre_vs_post_fec.png
-│       ├── fig4_source_compression_tradeoff.png
-│       └── fig5_pipeline_architecture.png
-└── paper/                         # IEEE Conference Research Paper
-    ├── main.tex                   # Standard IEEEtran LaTeX source
-    ├── generate_paper_pdf.py      # Automated 6-page PDF compiler
-    ├── IEEE_Conference_Paper_23BCE7551.pdf # Final compiled 6-page paper
-    └── figures/                   # High-resolution figures embedded in paper
+├── README.md                          # Comprehensive system documentation
+├── requirements.txt                   # Project dependencies
+├── main.py                            # CLI entry point (Demo, Wireless, Experiments)
+├── app.py                             # 5-Tab Streamlit interactive dashboard
+├── src/                               # Core simulation and communication package
+│   ├── source_coding/                 # Source coding algorithms
+│   │   ├── arithmetic_codec.py        # Lossless integer Arithmetic / Range Codec
+│   │   ├── lzw_codec.py               # Universal adaptive 12-bit LZW Codec
+│   │   ├── saturated_source.py        # Continuous telemetry & Markov generator
+│   │   └── binary_converter.py        # Bit packing and byte conversions
+│   ├── channel_coding/                # Forward Error Correction (FEC)
+│   │   ├── ldpc_codec.py              # Systematic (64, 32) LDPC with Sum-Product BP
+│   │   ├── polar_codec.py             # Systematic (64, 32) Polar code with SC
+│   │   ├── linear_block_codec.py      # Systematic Hamming(7, 4) code
+│   │   └── base.py                    # Block segmentation and depadding base class
+│   ├── channel_model/                 # Channel models
+│   │   ├── wired_channel.py           # Lossless, electrical AWGN, and BSC links
+│   │   └── channel_analyzer.py        # Shannon capacity analytics
+│   ├── wireless/                      # Wireless communication modules
+│   │   ├── frame_protocol.py          # Versioned binary frame format with CRC32
+│   │   ├── network_transceiver.py     # WirelessSender and WirelessReceiver TCP sockets
+│   │   ├── continuous_streamer.py     # Rate-controlled continuous streaming daemon
+│   │   └── channel_sim.py             # BPSK, wireless AWGN, and Monte Carlo runner
+│   ├── metrics/                       # Information theory metrics
+│   │   └── evaluator.py               # Pre/post-FEC BER, FER, and coding gain
+│   └── simulation/                    # Simulation orchestrator
+│       ├── pipeline.py                # End-to-end pipeline runner
+│       └── experiment_runner.py       # Multi-point Monte Carlo sweeps
+├── tests/                             # Automated test suite (69 passing tests)
+│   ├── test_arithmetic_coding.py      # Arithmetic codec unit tests
+│   ├── test_frame_protocol.py         # Frame serialization and CRC32 tests
+│   ├── test_network_transceiver.py    # Socket transceiver integration tests
+│   ├── test_continuous_streamer.py    # Continuous streaming lifecycle tests
+│   ├── test_wireless_channel_sim.py   # BPSK and wireless simulation tests
+│   ├── test_channel_coding.py         # LDPC, Polar, Hamming FEC tests
+│   ├── test_channel_model.py          # Channel variance and BER tests
+│   ├── test_source_coding.py          # LZW and telemetry generator tests
+│   ├── test_pipeline.py               # End-to-end pipeline integration tests
+│   └── test_webapp.py                 # Streamlit dashboard and privacy tests
+├── results/                           # Measurement outputs and plots
+│   ├── csv/                           # Benchmark datasets
+│   └── plots/                         # Publication-grade figures
+└── paper/                             # IEEE Conference paper deliverable
+    └── IEEE_Conference_Paper_23BCE7551.pdf
 ```
 
 ---
 
-## 4. Setup and Installation
+## 4. Installation & Environment Setup
 
 ### Prerequisites
-- Python 3.11+
-- Virtual environment or user-mode Python installation
+* **Operating System:** Windows 10 / 11, Linux, or macOS
+* **Python Version:** Python 3.10 or Python 3.11 (tested on Python 3.11.9)
 
-### Installation
-Clone or navigate to the workspace directory:
-```bash
-cd "c:\Users\saamsung\OneDrive\Desktop\ITC project"
-```
+### Setup in Windows PowerShell
 
-Install required dependencies:
-```bash
-pip install -r requirements.txt
-```
+1. **Clone or navigate to the project directory:**
+   ```powershell
+   cd "C:\Users\saamsung\OneDrive\Desktop\ITC project"
+   ```
 
----
+2. **Create and activate a Python virtual environment (optional but recommended):**
+   ```powershell
+   python -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   ```
 
-## 5. Execution Instructions
-
-### A. Run Live End-to-End Pipeline Demonstration
-Executes a live single-transmission cycle from saturated source generation through LZW, LDPC encoding, AWGN transmission, iterative belief propagation decoding, and exact string reconstruction:
-```bash
-python main.py --demo
-```
-
-### B. Run Full Monte Carlo Experiments & Generate Plots
-Executes $E_b/N_0$ sweeps (0 to 10 dB) and BSC bit-flip sweeps ($10^{-4}$ to $0.15$), logs empirical measurements to CSV, and generates 300 DPI plots:
-```bash
-python main.py --experiments
-```
-
-### C. Run Both Demo and Experiments
-```bash
-python main.py --all
-```
-
-### D. Run Automated Test Suite
-Executes all 20 unit and integration tests across source coding, channel coding, channel models, and metrics:
-```bash
-pytest tests/ -v
-```
-
-### E. Compile IEEE Research Paper PDF
-Compiles the 6-page IEEE conference paper PDF directly:
-```bash
-python paper/generate_paper_pdf.py
-```
+3. **Install required dependencies:**
+   ```powershell
+   pip install -r requirements.txt
+   ```
 
 ---
 
-## 6. Mathematical Formulation
+## 5. Running the Application & Demonstrations
 
-### 1. Empirical Shannon Entropy
-$$H(S) = - \sum_{i=1}^M P(s_i) \log_2 P(s_i) \quad \text{[bits/symbol]}$$
-
-### 2. Systematic Linear Block Code Structure
-$$\mathbf{G} = [\mathbf{I}_K \mid \mathbf{P}^T] \in \mathbb{F}_2^{K \times N}, \quad \mathbf{H} = [\mathbf{P} \mid \mathbf{I}_M] \in \mathbb{F}_2^{M \times N}$$
-$$\mathbf{c} = \mathbf{m}\mathbf{G} = [\mathbf{m} \mid \mathbf{m}\mathbf{P}^T \pmod 2], \quad \mathbf{c}\mathbf{H}^T \equiv \mathbf{0} \pmod 2$$
-
-### 3. Electrical Wired AWGN Channel & Noise Variance
-Antipodal BPSK modulation maps bit $c_n \in \{0, 1\}$ to voltage $s_n = 1 - 2c_n \in \{+1.0\text{V}, -1.0\text{V}\}$.  
-The channel sample is $y_n = s_n + w_n$ with Gaussian noise $w_n \sim \mathcal{N}(0, \sigma^2)$:
-$$\sigma = \frac{1}{\sqrt{2 R \cdot 10^{(E_b/N_0)_{\text{dB}} / 10}}}$$
-
-Theoretical uncoded BPSK BER:
-$$P_{b,\text{uncoded}} = Q\left(\sqrt{2 E_b/N_0}\right) = \frac{1}{2} \operatorname{erfc}\left(\sqrt{E_b/N_0}\right)$$
-
-### 4. Log-Domain Belief Propagation (Sum-Product)
-Initial channel Log-Likelihood Ratio (LLR):
-$$L_{\text{ch}}(n) = \frac{2 y_n}{\sigma^2}$$
-
-Check node update:
-$$r_{mn} = 2 \operatorname{atanh}\left( \prod_{n' \in \mathcal{N}(m) \setminus n} \tanh\left(\frac{q_{mn'}}{2}\right) \right)$$
-
-Variable node update:
-$$q_{mn} = L_{\text{ch}}(n) + \sum_{m' \in \mathcal{M}(n) \setminus m} r_{m'n}$$
-
-Total posterior LLR and hard decision:
-$$Q_n = L_{\text{ch}}(n) + \sum_{m \in \mathcal{M}(n)} r_{mn}, \quad \hat{c}_n = \begin{cases} 0 & Q_n \ge 0 \\ 1 & Q_n < 0 \end{cases}$$
-
----
-
-## 7. Experimental Findings Summary
-
-| Metric / Scenario | Uncoded BPSK | Systematic Hamming(7,4) | Systematic Polar(64,32) | Systematic LDPC(64,32) [IEEE 802.3an] |
-| :--- | :---: | :---: | :---: | :---: |
-| **Code Rate ($R$)** | $1.00$ | $0.571$ | $0.50$ | $0.50$ |
-| **Redundancy Overhead** | $0.0\%$ | $75.0\%$ | $100.0\%$ | $100.0\%$ |
-| **AWGN BER @ 3.0 dB** | $2.29 \times 10^{-2}$ | $3.36 \times 10^{-2}$ | $1.20 \times 10^{-2}$ | **$6.17 \times 10^{-3}$** ($3.7\times$ lower) |
-| **AWGN BER @ 4.0 dB** | $1.29 \times 10^{-2}$ | $1.68 \times 10^{-2}$ | $2.38 \times 10^{-3}$ | **$1.99 \times 10^{-3}$** ($6.5\times$ lower) |
-| **AWGN BER @ 7.0 dB** | $5.86 \times 10^{-4}$ | $3.91 \times 10^{-4}$ | $0.00^*$ | **$0.00^*$ (0 errors in 25,600 bits)** |
-| **BSC BER @ $p=0.01$** | $1.05 \times 10^{-2}$ | $1.17 \times 10^{-3}$ | $0.00^*$ | **$6.25 \times 10^{-4}$** ($16.8\times$ lower) |
-| **Lossless Link ($p=0$)** | Exact Recovery | Exact Recovery | Exact Recovery | **100% Exact Byte Recovery** |
-| **Coding Gain @ $10^{-4}$**| Reference ($0\text{ dB}$) | $+1.2\text{ dB}$ | $+3.5\text{ dB}$ | **$+3.8\text{ dB}$** |
-
-*\*Note on Zero Observed Errors:* Observing zero errors in $N = 25,600$ bits implies by the statistical Rule of Three that the true underlying link error probability satisfies $\text{BER}_{95\%} < \frac{3}{25,600} \approx 1.17 \times 10^{-4}$.
-
----
-
-## 8. Classroom Presentation Script & Slide Outline
-
-- **Slide 1: Title & Assignment Mapping**
-  - Project Title: Modern Channel Coding for High-Speed Wired Communication Systems.
-  - Student: Aravind (23BCE7551), VIT-AP University.
-  - Topic: Wired Network (assigned because terminal digit 1 is odd).
-- **Slide 2: Problem Statement & Technical Clarification**
-  - Resolving the "Lossless Channel" reference: why physical copper Ethernet links (IEEE 802.3an) require LDPC codes to overcome physical thermal noise and crosstalk, transforming raw noisy lines into logically lossless conduits.
-- **Slide 3: Pipeline Architecture**
-  - Walkthrough of 7 stages: Saturated Telemetry Source $\to$ Binary ASCII $\to$ LZW Dictionary Encoder $\to$ LDPC Encoder $\to$ AWGN/BSC Channel $\to$ Belief Propagation Decoder $\to$ LZW Decoder $\to$ Metric Evaluator.
-- **Slide 4: Source Coding Results**
-  - LZW achieves 38.8% bandwidth savings on correlated Markov streams ($H = 0.286$). On uniform random data ($H \approx 1.0$), compression expands data by 50%, validating Shannon's source coding theorem.
-- **Slide 5: Channel Coding Waterfall & Coding Gain**
-  - LDPC exhibits a sharp threshold at $E_b/N_0 = 3\text{--}4$ dB, achieving $> 3.8$ dB coding gain over uncoded transmission and driving BER to zero at $E_b/N_0 \ge 7$ dB.
-- **Slide 6: Conclusion**
-  - Practical demonstration of end-to-end information recovery with full statistical verification.
-
----
-
-## 9. Ten Likely Viva Questions and Technical Answers
-
-1. **Q: Why was the Wired Network track assigned to you?**  
-   *A:* The assignment instructions specify that students whose registration number ends in an odd digit must implement a Wired Network. Registration number 23BCE7551 ends in the odd digit `1`.
-
-2. **Q: How do you reconcile the teacher's handwritten reference to a "lossless channel" with the requirement to perform BER analysis?**  
-   *A:* In Shannon information theory, an ideal lossless channel has $H(X|Y)=0$ and $\text{BER}=0$. However, physical wired media (like 10GBASE-T twisted-pair copper) suffer from thermal noise, attenuation, and alien crosstalk. In modern standards (IEEE 802.3an), channel coding (LDPC) is specifically deployed to turn a noisy physical channel into an effectively lossless logical channel. Our simulation evaluates both the ideal lossless baseline ($p=0$, verifying 100% exact recovery) and physical AWGN/BSC channels to evaluate BER waterfall curves.
-
-3. **Q: Why did you select LZW rather than Huffman or Shannon-Fano coding?**  
-   *A:* Huffman and Shannon-Fano coding are static, requiring prior calculation and transmission of symbol frequency tables, which introduces overhead and latency in continuous streaming data. LZW is a modern, adaptive dictionary coding technique that builds substring tables incrementally at both transmitter and receiver without transmitting codebooks.
-
-4. **Q: Why are Low-Density Parity-Check (LDPC) codes used in 10GBASE-T Ethernet (IEEE 802.3an)?**  
-   *A:* LDPC codes achieve near-Shannon capacity limits with low decoding latency. Their sparse parity-check matrices allow highly parallelized hardware implementations of message-passing belief propagation decoders, outperforming Turbo codes in high-throughput wired transceivers.
-
-5. **Q: What is the difference between Pre-FEC BER and Post-FEC BER?**  
-   *A:* Pre-FEC BER is the raw bit error rate measured at the channel slicer output before channel decoding. Post-FEC BER is the residual error rate remaining after the iterative decoder finishes. In IEEE 802.3an, a pre-FEC BER of $10^{-2}$ to $10^{-3}$ is suppressed to a post-FEC BER below $10^{-12}$.
-
-6. **Q: How does Log-Domain Belief Propagation (Sum-Product) work?**  
-   *A:* The decoder operates on a bipartite Tanner graph connecting variable nodes and check nodes. It iteratively exchanges Log-Likelihood Ratio (LLR) messages along graph edges using hyperbolic tangent operations at check nodes and linear additions at variable nodes until all parity-check equations ($\mathbf{H}\hat{\mathbf{c}}^T = \mathbf{0}$) are satisfied or max iterations are reached.
-
-7. **Q: Why did Polar codes perform well in your benchmarks?**  
-   *A:* Polar codes, introduced by Arıkan, provably achieve symmetric channel capacity by polarizing $N$ independent channels into completely noisy or completely noiseless channels. Information bits are transmitted only over the highest-reliability channels, yielding low error rates under Successive Cancellation (SC) decoding.
-
-8. **Q: If an experiment yields 0 errors in 25,600 bits, does that prove the true BER is 0?**  
-   *A:* No. In empirical statistics, observing zero errors over $N$ tested bits establishes an upper 95% confidence bound of $\text{BER} < 3/N$ by the Rule of Three. For $N = 25,600$, we can only state with 95% confidence that $\text{BER} < 1.17 \times 10^{-4}$.
-
-9. **Q: What happens if you apply LZW compression to an incompressible source ($H(X) \approx 1$)?**  
-   *A:* Shannon's Source Coding Theorem establishes that a source cannot be compressed below its entropy without information loss. For uniform random bits ($H = 1$), LZW overhead results in a compression ratio of $\text{CR} < 1.0$ (data expansion), demonstrating that compression must be bypassed for encrypted or high-entropy data.
-
-10. **Q: What is coding gain and how much did your LDPC implementation achieve?**  
-    *A:* Coding gain is the reduction in $E_b/N_0$ (in dB) enabled by error correction to achieve a specified target BER compared to uncoded transmission. At $\text{BER} = 10^{-4}$, our systematic LDPC code provides over $3.8\text{ dB}$ of coding gain compared to uncoded BPSK.
-
----
-
-## 10. Summary Table of Techniques, Models, and Metrics
-
-| Component / Parameter | Selected Technique / Model | Mathematical / Technical Purpose |
-| :--- | :--- | :--- |
-| **Information Source** | Saturated Telemetry & Markov Source | Continuously generates symbol sequences with controlled empirical entropy $H(X)$. |
-| **Source Coding** | Adaptive LZW (12-bit depth) | Universal substring dictionary compression without static codebook transmission. |
-| **Primary Channel Code** | Systematic LDPC ($N=64, K=32$) | Mandatory FEC in IEEE 802.3an 10GBASE-T Ethernet; near-Shannon capacity error suppression. |
-| **Alternative FEC 1** | Systematic Polar ($N=64, K=32$) | Arıkan channel polarization FEC with Successive Cancellation decoding. |
-| **Alternative FEC 2** | Systematic Hamming ($N=7, K=4$) | Classical single-error correcting linear block baseline ($d_{\min}=3$). |
-| **Wired AWGN Channel** | Baseband BPSK + Thermal Noise | Realistic electrical link modeling thermal Gaussian noise and SNR degradation. |
-| **Wired BSC Channel** | Discrete Memoryless Bit-Flip ($p$) | Parametric model evaluating FEC error correction thresholds under bit flips. |
-| **Lossless Wired Baseline** | Ideal Channel ($p=0, \sigma \to 0$) | Direct verification of the teacher's noiseless baseline ensuring 100% exact recovery. |
-| **Pre-FEC BER** | $\sum (c_n \oplus \hat{c}_{n,\text{raw}}) / N$ | Raw channel error rate entering the FEC decoder. |
-| **Post-FEC BER** | $\sum (m_k \oplus \hat{m}_k) / K$ | Residual error rate delivered to the destination payload decoder. |
-| **Coding Gain** | $(E_b/N_0)_{\text{uncoded}} - (E_b/N_0)_{\text{coded}}$ | Energy efficiency improvement in dB at target error rate. |
-| **Compression Ratio** | $L_{\text{raw}} / L_{\text{comp}}$ | Efficiency of data reduction relative to source entropy. |
-
----
-
-## 11. IEEE Research Paper Details
-
-The project includes an IEEE conference-style research paper formatted using the official IEEE conference template:
-- **Title:** *Performance Analysis and Implementation of Modern Channel Coding for High-Speed Saturated Wired Communication Systems*
-- **Author:** Aravind (Registration Number: 23BCE7551), VIT-AP University
-- **LaTeX Source:** [`paper/main.tex`](paper/main.tex)
-- **Compiled PDF:** [`paper/IEEE_Conference_Paper_23BCE7551.pdf`](paper/IEEE_Conference_Paper_23BCE7551.pdf) (Exact 6 pages)
-- **Citations:** 12 verified IEEE references with DOIs (Shannon 1948, Gallager 1962, MacKay 1996, IEEE 802.3an, Arıkan 2009, Welch 1984, Gershon 2026, Mousavi 2024, etc.).
-
----
-
-## 12. Interactive Streamlit Web Application & Cloud Deployment
-
-An interactive Streamlit application (`app.py`) is provided to visually demonstrate the communication pipeline and allow real-time parameter exploration:
-
-### Local Execution
+### Launching the Streamlit Interactive Dashboard
 ```powershell
 python -m streamlit run app.py
 ```
-Or with custom port:
+Open your browser to `http://127.0.0.1:8501` to access the full 5-tab interface:
+* **TAB A:** Live Message Sender
+* **TAB B:** Live Receiver
+* **TAB C:** Continuous Source Streamer
+* **TAB D:** Wireless Channel Simulation
+* **TAB E:** Coding Analysis & Mathematical Explanations
+
+---
+
+### CLI Execution Commands
+
+#### 1. Live Wireless Socket Transmission Demo (Mode A)
+Launches a loopback TCP receiver, encodes a message with Arithmetic coding + LDPC, transmits the binary frame, verifies CRC32, reconstructs the text, and checks the receiver ACK:
 ```powershell
-python -m streamlit run app.py --server.port 8501
+python main.py --wireless-demo
 ```
-Open [http://localhost:8501](http://localhost:8501) in your browser.
+Custom message and codec:
+```powershell
+python main.py --wireless-demo --message "Testing Wi-Fi wireless packet!" --codec arithmetic
+```
 
-### Key Web Features
-1. **Live Pipeline Simulation:** Choose custom text, saturated telemetry, or random binary streams; toggle LZW coding; select LDPC, Polar, Hamming, or Uncoded; simulate over Lossless, AWGN, or BSC links.
-2. **Step-by-Step Inspector:** Inspect source entropy $H(X)$, LZW compressed bytes, transmitted codewords, noise variance $\sigma$, decoded bits, and exact-recovery badges.
-3. **Empirical Curves Explorer:** View interactive high-resolution performance waterfall curves generated from actual Monte Carlo sweeps.
-4. **Verified Paper & CSV Downloads:** Directly download the compiled 6-page IEEE Conference Paper (PDF) and empirical measurement datasets.
+#### 2. Wireless Physical Channel Simulation Demo (Mode C)
+Simulates BPSK modulation, AWGN noise, soft demodulation, and iterative LDPC decoding:
+```powershell
+# At 4.0 dB (waterfall error-suppression region):
+python main.py --wireless-sim --snr 4.0
 
-### Cloud Deployment (Streamlit Community Cloud / Render)
-1. Push repository to GitHub:
-   ```bash
-   git init
-   git add .
-   git commit -m "Information Theory & Channel Coding simulation project (23BCE7551)"
-   git branch -M main
-   git remote add origin https://github.com/<your-username>/<repo-name>.git
-   git push -u origin main
-   ```
-2. On [Streamlit Community Cloud](https://share.streamlit.io):
-   - Click **New app**.
-   - Select your GitHub repository, branch (`main`), and set Main file path to `app.py`.
-   - Click **Deploy**!
-   - Streamlit Cloud will automatically install dependencies from `requirements.txt` and launch the app with a public HTTPS URL.
+# At 8.0 dB (error-free 100% exact reconstruction):
+python main.py --wireless-sim --snr 8.0
+```
 
+#### 3. Repeatable Multi-Trial Physical Simulation
+Runs 10 independent noise realizations to calculate average pre-FEC BER, post-FEC BER, and Frame Error Rate (FER):
+```powershell
+python main.py --multi-trial --snr 4.0 --trials 10
+python main.py --multi-trial --snr 7.0 --trials 10
+```
+
+#### 4. Baseline Wired Transmission Demo
+Runs the original baseline demonstration comparing ideal lossless and wired AWGN links:
+```powershell
+python main.py --demo
+```
+
+---
+
+## 6. Two-Computer Wi-Fi Networking Setup
+
+To communicate between two physical computers connected to the same Wi-Fi router:
+
+### Step 1: Find the Receiver's Private IPv4 Address
+On the **Receiver Computer**, open PowerShell and run:
+```powershell
+ipconfig
+```
+Look for the **IPv4 Address** under `Wireless LAN adapter Wi-Fi` (e.g., `192.168.1.45`).
+
+### Step 2: Configure Windows Firewall
+Ensure port `8550` is allowed through Windows Defender Firewall:
+1. Open **Windows Defender Firewall with Advanced Security**.
+2. Click **Inbound Rules** &rarr; **New Rule**.
+3. Select **Port** &rarr; **TCP** &rarr; Specific local ports: `8550`.
+4. Select **Allow the connection** &rarr; check **Private** network &rarr; Finish.
+
+### Step 3: Start the Receiver
+On the Receiver Computer:
+* Launch `python -m streamlit run app.py`.
+* Navigate to **TAB B (Live Receiver)**.
+* Leave Listen Interface as `0.0.0.0` and Port as `8550`.
+* Click **Start Listening**.
+
+### Step 4: Transmit from the Sender Computer
+On the Sender Computer:
+* Launch `python -m streamlit run app.py`.
+* Navigate to **TAB A (Live Message Sender)**.
+* In **Receiver Host / IPv4 Address**, enter the receiver's IP (e.g., `192.168.1.45`).
+* Enter Port `8550`.
+* Type a message and click **Send Wireless Message**.
+* The sender displays the confirmation ACK and round-trip time, while the receiver immediately displays the reconstructed message and verified sequence number.
+
+---
+
+## 7. Mathematical & Information Theory Foundations
+
+### 1. Source Coding vs. Channel Coding
+* **Source Coding (Data Compression):** Reduces statistical redundancy by mapping source symbols into minimal bit representations, approaching the source entropy $H(X)$. In this project:
+  * **Arithmetic Coding:** Encodes strings into a single high-precision interval $[0, 1)$ based on empirical byte frequencies, overcoming the integer-length penalty of Huffman coding.
+  * **LZW Codec:** Dynamically builds an adaptive dictionary of recurring character n-grams.
+  * **Compression Ratio:**
+    $$\text{CR} = \frac{\text{Original Payload Bytes}}{\text{Compressed Payload Bytes}}$$
+* **Channel Coding (Error Correction):** Intentionally injects structured algebraic redundancy so that channel-induced bit flips can be detected and corrected at the receiver.
+  * **Code Rate:** $R = K / N = 32 / 64 = 0.50$ (100% redundancy overhead).
+
+### 2. IEEE 802.3an LDPC $(64, 32)$ Code
+* **Dimensions:** Codeword length $N = 64$, Information length $K = 32$, Parity checks $M = 32$.
+* **Orthogonality:** Parity-check matrix $H \in \mathbb{F}_2^{32 \times 64}$ and generator matrix $G \in \mathbb{F}_2^{32 \times 64}$ satisfy:
+  $$G \cdot H^T \equiv \mathbf{0} \pmod 2$$
+* **Log-Domain Belief Propagation (Sum-Product Algorithm):**
+  * Variable-to-Check Message:
+    $$q_{mn} = L_n + \sum_{c \in C(n) \setminus m} r_{cn}$$
+  * Check-to-Variable Message:
+    $$\tanh\left(\frac{r_{mn}}{2}\right) = \prod_{j \in V(m) \setminus n} \tanh\left(\frac{q_{mj}}{2}\right)$$
+  * Posterior LLR Decision: $\hat{c}_n = 1$ if $Q_n < 0$, else $\hat{c}_n = 0$.
+
+### 3. Bit Error Rate (BER) Calculation
+* **Pre-FEC BER:** Evaluates hard-sliced channel decisions against transmitted codeword bits:
+  $$\text{BER}_{\text{pre}} = \frac{\sum_{i=1}^N c_i \oplus \hat{r}_i}{N}$$
+* **Post-FEC BER:** Evaluates decoded information bits against original source bits:
+  $$\text{BER}_{\text{post}} = \frac{\sum_{i=1}^K m_i \oplus \hat{m}_i}{K}$$
+* **Error Suppression Gain:**
+  $$\text{Gain} = \frac{\text{BER}_{\text{pre}}}{\max(\text{BER}_{\text{post}}, 10^{-12})}$$
+
+---
+
+## 8. Automated Testing
+
+All 69 automated tests can be executed with:
+```powershell
+python -m pytest tests/ -v
+```
+
+### Test Suite Structure
+| Test Module | Tests | Description |
+| :--- | :---: | :--- |
+| `test_arithmetic_coding.py` | 7 | Exact roundtrip, Unicode, binary bytes, empty inputs, compression ratio |
+| `test_frame_protocol.py` | 5 | Serialization, ACK frames, CRC32 corruption detection, socket framing |
+| `test_network_transceiver.py` | 4 | Required integration test (`"Hello, this is my wireless ITC project!"`), LZW, sequence preservation, error handling |
+| `test_continuous_streamer.py` | 2 | Continuous stream start/stop lifecycle, throughput metrics, backpressure |
+| `test_wireless_channel_sim.py` | 5 | BPSK modulation, theoretical AWGN formula, LDPC decoding, SNR sweep |
+| `test_channel_coding.py` | 15 | LDPC orthogonality, belief propagation, min-sum, polar SC, Hamming |
+| `test_channel_model.py` | 7 | Lossless channel, BSC bit-flip rates, AWGN variance, capacity |
+| `test_source_coding.py` | 12 | Saturated telemetry source, Markov bitstream, LZW dictionary growth |
+| `test_pipeline.py` | 9 | End-to-end pipeline integration, lossless, AWGN, metrics |
+| `test_webapp.py` | 3 | Streamlit HTTP server online, syntax check, header privacy |
+| **Total Passing Tests** | **69** | **100% Pass Rate** |
+
+---
+
+## 9. Physical & Operational Limitations
+
+1. **Local Wi-Fi Network Visibility:** Communication between two physical computers requires both devices to be connected to the same Wi-Fi subnet (AP isolation must be disabled) and Windows Firewall must allow inbound traffic on port `8550`.
+2. **TCP ARQ vs. Raw Physical Bit Errors:** Mode A and Mode B operate over TCP sockets, which guarantee reliable delivery through retransmissions. To observe analog bit error rates and waterfall behavior, use Mode C (Physical Channel Simulation).
+3. **Finite Blocklength Waterfall Region:** The $(64, 32)$ LDPC code has blocklength $N=64$. At $E_b/N_0 = 4.0\text{ dB}$, the code operates in its finite-length waterfall region ($\text{BER} \approx 10^{-3}$, $\approx 35\times$ error reduction). At $E_b/N_0 \ge 7.0\text{ dB}$, error-free decoding ($\text{BER} = 0.0000$) is achieved.
+4. **Adaptive Dictionary Desynchronization in Corrupted Channels:** When source coding is applied, any uncorrected bit errors from the channel will cause dictionary misalignment during decompression. Strong FEC is essential before decompressing source-coded streams.

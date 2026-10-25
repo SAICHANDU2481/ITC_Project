@@ -13,11 +13,19 @@ import argparse
 import time
 import numpy as np
 
-from src.source_coding import SaturatedSource, BinaryConverter, LZWCodec
+from src.source_coding import SaturatedSource, BinaryConverter, LZWCodec, ArithmeticCodec
 from src.channel_coding import LDPCCodec, PolarCodec, HammingCodec
 from src.channel_model import WiredChannel, ChannelAnalyzer
 from src.metrics import PerformanceEvaluator
 from src.simulation import CommunicationPipeline, ExperimentRunner
+from src.wireless import (
+    WirelessSender,
+    WirelessReceiver,
+    WirelessFrame,
+    ContinuousSourceStreamer,
+    WirelessPhysicalChannel,
+    WirelessSimulationPipeline
+)
 
 
 def print_banner():
@@ -207,6 +215,80 @@ def run_multi_trial_experiment(eb_no_db: float = 4.0, num_trials: int = 10, seed
         print("    Empirical Error Reduction Gain: Infinite (Zero residual errors across all trials)")
 
 
+def demonstrate_wireless_transmission(message: str = "Hello, this is my wireless ITC project!", codec: str = "arithmetic"):
+    """
+    Demonstrate Mode A: Live wireless message transmission over TCP loopback sockets
+    with Arithmetic/LZW source coding, LDPC channel coding, CRC32 framing, and receiver ACK.
+    """
+    print("\n" + "="*80)
+    print("LIVE WIRELESS TRANSMISSION DEMONSTRATION (Mode A: Local Wi-Fi / Loopback TCP Sockets)")
+    print("="*80)
+    test_port = 8550
+    receiver = WirelessReceiver(host="127.0.0.1", port=test_port)
+    receiver.start()
+    time.sleep(0.1)
+
+    try:
+        sender = WirelessSender()
+        print(f"\n[1] SENDER TRANSMISSION:")
+        print(f"    Original Message: \"{message}\"")
+        print(f"    Source Codec: {codec.upper()}")
+        print(f"    Channel FEC: IEEE 802.3an LDPC (64, 32, R=0.5)")
+
+        rep = sender.send_message(
+            message=message,
+            host="127.0.0.1",
+            port=test_port,
+            use_source_coding=True,
+            source_codec=codec,
+            use_ldpc=True
+        )
+
+        print(f"\n[2] WIRELESS FRAME & NETWORK METRICS:")
+        print(f"    Sequence Number: #{rep['seq_num']}")
+        print(f"    Original Payload Size: {rep['orig_size_bytes']} bytes")
+        print(f"    Source Coded Size: {rep['src_size_bytes']} bytes (Compression Ratio: {rep['compression_ratio']:.2f}x)")
+        print(f"    Transmitted Frame Size: {rep['coded_size_bytes']} bytes")
+        print(f"    Round-Trip Latency: {rep['round_trip_ms']:.2f} ms")
+        print(f"    Receiver Acknowledgment: {rep['ack_status']} ({rep['status']})")
+
+        time.sleep(0.1)
+        history = receiver.get_history()
+        if history:
+            rx = history[-1]
+            print(f"\n[3] RECEIVER RECONSTRUCTION:")
+            print(f"    Received from: {rx['sender']}")
+            print(f"    Checksum Verification: {'PASSED (CRC32 Verified)' if rx['checksum_verified'] else 'FAILED'}")
+            print(f"    Decoding Status: {rx['status_code']}")
+            print(f"    Actual Reconstructed Text: \"{rx['reconstructed_text']}\"")
+            exact = (rx['reconstructed_text'] == message)
+            print(f"    Exact Fidelity Match: {exact}")
+    finally:
+        receiver.stop()
+
+
+def demonstrate_wireless_physical_simulation(eb_no_db: float = 4.0, message: str = "Hello, this is my wireless ITC project!"):
+    """
+    Demonstrate Mode C: Wireless physical channel simulation with BPSK modulation,
+    AWGN noise injection, soft demodulation, and iterative LDPC belief propagation.
+    """
+    print("\n" + "="*80)
+    print(f"WIRELESS PHYSICAL CHANNEL SIMULATION (Mode C: BPSK + AWGN + Soft Demodulation + LDPC BP)")
+    print("="*80)
+    pipe = WirelessSimulationPipeline(seed=42)
+    res = pipe.run_simulation(message=message, eb_no_db=eb_no_db, source_codec="arithmetic", ldpc_max_iter=25)
+    print(f"  Channel SNR (Eb/N0):           {res['eb_no_db']:.1f} dB")
+    print(f"  Information Bits Tested:       {res['info_bits']} bits")
+    print(f"  Pre-FEC Channel Slicer Errors: {res['pre_fec_errors']} (BER: {res['pre_fec_ber']:.4e})")
+    print(f"  Post-FEC Residual Errors:      {res['post_fec_errors']} (BER: {res['post_fec_ber']:.4e})")
+    gain_str = f"{res['error_suppression_gain']:.1f}x reduction" if res['error_suppression_gain'] < 1e6 else "Infinite"
+    print(f"  Error Suppression Gain:        {gain_str}")
+    print(f"  Frame Error Rate (FER):        {res['fer']:.4e} ({res['frame_errors']} / {res['num_ldpc_blocks']} blocks)")
+    print(f"  Exact Bit-for-Bit Recovery:    {res['exact_recovery']}")
+    print(f"  Reconstructed Text Excerpt:    \"{res['reconstructed_text'][:60]}...\"")
+    print(f"  Uncoded Baseline BER:          {res['uncoded_ber']:.4e} (Exact: {res['uncoded_exact']})")
+
+
 def run_full_suite():
     """
     Run the complete experimental suite, save CSVs, and plot figures.
@@ -231,8 +313,12 @@ def run_full_suite():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="ITC Wired Communication System Simulation (Reg: 23BCE7551)")
+    parser = argparse.ArgumentParser(description="ITC Wireless Communication System Simulation")
     parser.add_argument("--demo", action="store_true", help="Run live end-to-end single transmission demo")
+    parser.add_argument("--wireless-demo", action="store_true", help="Run live wireless socket transmission demo (Mode A)")
+    parser.add_argument("--wireless-sim", action="store_true", help="Run wireless physical-layer channel simulation (Mode C)")
+    parser.add_argument("--message", type=str, default="Hello, this is my wireless ITC project!", help="Message payload to transmit")
+    parser.add_argument("--codec", type=str, choices=["arithmetic", "lzw"], default="arithmetic", help="Source codec")
     parser.add_argument("--snr", type=float, default=4.0, help="Channel SNR (Eb/N0 in dB) for demo (default: 4.0 dB)")
     parser.add_argument("--multi-trial", action="store_true", help="Run repeatable multi-trial experiment across multiple noise realizations")
     parser.add_argument("--trials", type=int, default=10, help="Number of trials for multi-trial experiment (default: 10)")
@@ -243,7 +329,11 @@ def main():
 
     print_banner()
 
-    if args.multi_trial:
+    if args.wireless_demo:
+        demonstrate_wireless_transmission(message=args.message, codec=args.codec)
+    elif args.wireless_sim:
+        demonstrate_wireless_physical_simulation(eb_no_db=args.snr, message=args.message)
+    elif args.multi_trial:
         run_multi_trial_experiment(eb_no_db=args.snr, num_trials=args.trials, seed=42)
     elif args.demo:
         demonstrate_single_transmission(snr_db=args.snr)
@@ -251,9 +341,10 @@ def main():
         run_full_suite()
     elif args.all:
         demonstrate_single_transmission(snr_db=args.snr)
+        demonstrate_wireless_transmission(message=args.message, codec=args.codec)
         run_full_suite()
     else:
-        # Default run both
+        # Default run demo and full experiments
         demonstrate_single_transmission(snr_db=args.snr)
         run_full_suite()
 

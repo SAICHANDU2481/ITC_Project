@@ -5,5 +5,7 @@ Source coding package: Saturated source generation, binary conversion, and LZW c
 from .saturated_source import SaturatedSource
 from .binary_converter import BinaryConverter
 from .lzw_codec import LZWCodec
+from .arithmetic_codec import ArithmeticCodec
 
-__all__ = ["SaturatedSource", "BinaryConverter", "LZWCodec"]
+__all__ = ["SaturatedSource", "BinaryConverter", "LZWCodec", "ArithmeticCodec"]
+
