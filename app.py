@@ -630,7 +630,12 @@ with tab_analysis:
 
     st.markdown("---")
     st.markdown("### 📥 Academic Research Deliverables")
-    paper_pdf = os.path.join(APP_DIR, "paper", "IEEE_Conference_Paper_23BCE7551.pdf")
+    paper_dir = os.path.join(APP_DIR, "paper")
+    paper_pdf = os.path.join(paper_dir, "IEEE_Conference_Paper.pdf")
+    if not os.path.exists(paper_pdf) and os.path.exists(paper_dir):
+        pdf_candidates = [f for f in os.listdir(paper_dir) if f.endswith(".pdf")]
+        if pdf_candidates:
+            paper_pdf = os.path.join(paper_dir, pdf_candidates[0])
     if os.path.exists(paper_pdf):
         with open(paper_pdf, "rb") as f:
             pdf_bytes = f.read()

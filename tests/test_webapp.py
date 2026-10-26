@@ -8,12 +8,24 @@ import os
 import sys
 
 def test_streamlit_server_online():
-    url = "http://127.0.0.1:8501"
-    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-    with urllib.request.urlopen(req, timeout=5) as response:
-        assert response.status == 200
-        html = response.read().decode('utf-8', errors='ignore')
-        assert "Streamlit" in html or "streamlit" in html.lower()
+    ports = [os.environ.get("STREAMLIT_SERVER_PORT", "8501")]
+    if "8502" not in ports:
+        ports.append("8502")
+
+    last_err = None
+    for port in ports:
+        url = f"http://127.0.0.1:{port}"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        try:
+            with urllib.request.urlopen(req, timeout=5) as response:
+                assert response.status == 200
+                html = response.read().decode('utf-8', errors='ignore')
+                assert "Streamlit" in html or "streamlit" in html.lower()
+                return
+        except Exception as e:
+            last_err = e
+    if last_err:
+        raise last_err
 
 
 def test_app_script_syntax_and_imports():

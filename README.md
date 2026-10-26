@@ -153,10 +153,55 @@ ITC project/
 ## 5. Running the Application & Demonstrations
 
 ### Launching the Streamlit Interactive Dashboard
+
+#### 1. Default Port (8501)
+To start the dashboard on the standard port:
 ```powershell
 python -m streamlit run app.py
 ```
-Open your browser to `http://127.0.0.1:8501` to access the full 5-tab interface:
+Open your browser to the local URL printed by Streamlit in the terminal:
+```text
+http://127.0.0.1:8501
+```
+
+#### 2. Alternate Port (8502 or custom)
+If port 8501 is already in use by another session or service, launch the dashboard on an alternate port without modifying configuration files:
+```powershell
+python -m streamlit run app.py --server.port 8502
+```
+Then navigate to:
+```text
+http://127.0.0.1:8502
+```
+
+#### 3. Diagnosing and Resolving Port 8501 Conflicts
+If you encounter `Port 8501 is not available`:
+
+1. **Check which process is listening on port 8501:**
+   ```powershell
+   netstat -ano | findstr :8501
+   ```
+   *The last column displays the numeric Process Identifier (PID).*
+
+2. **Identify the process name and details using its PID:**
+   ```powershell
+   tasklist /FI "PID eq <PID>"
+   ```
+   *(e.g., `tasklist /FI "PID eq 34424"`)*
+
+3. **Safely Stop the Process (if obsolete):**
+   *IMPORTANT: Only terminate a process after confirming its identity and verifying that it is indeed an obsolete Streamlit instance and not an unrelated system service.*
+   ```powershell
+   Stop-Process -Id <PID>
+   ```
+   or via standard Windows command prompt:
+   ```cmd
+   taskkill /PID <PID> /F
+   ```
+   Once freed, re-run `python -m streamlit run app.py`.
+
+#### Available Dashboard Tabs
+Access the full 5-tab interface:
 * **TAB A:** Live Message Sender
 * **TAB B:** Live Receiver
 * **TAB C:** Continuous Source Streamer
