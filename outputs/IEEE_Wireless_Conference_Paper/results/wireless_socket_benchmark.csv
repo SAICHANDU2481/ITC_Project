@@ -1,0 +1,4 @@
+codec_mode,orig_size_bytes,src_size_bytes,compression_ratio,coded_frame_size_bytes,round_trip_ms,crc32_verified,ack_status,exact_fidelity_match
+Raw Text (No Source Coding),39,39,1.0,114,14.2,True,OK,True
+Arithmetic Coding (32-bit Integer),39,119,0.33,242,48.6,True,OK,True
+LZW Dictionary Coding (12-bit),39,54,0.72,114,24.64,True,OK,True

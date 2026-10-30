@@ -147,14 +147,14 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# -----------------------------------------------------------------------------
-# Persistent Session State Initialization
-# -----------------------------------------------------------------------------
+@st.cache_resource
+def get_global_receiver() -> WirelessReceiver:
+    return WirelessReceiver(host="0.0.0.0", port=8550)
+
+st.session_state.receiver = get_global_receiver()
+
 if "sender" not in st.session_state:
     st.session_state.sender = WirelessSender()
-
-if "receiver" not in st.session_state:
-    st.session_state.receiver = WirelessReceiver(host="0.0.0.0", port=8550)
 
 if "streamer" not in st.session_state:
     st.session_state.streamer = ContinuousSourceStreamer(sender=st.session_state.sender)
@@ -345,50 +345,54 @@ with tab_receiver:
         if st.button("🔄 Refresh View"):
             st.rerun()
 
-    # Receiver Status Banner
-    if st.session_state.receiver.is_running():
-        st.markdown(f'<div class="status-pill status-ok">🟢 LISTENING on {rx_host}:{rx_port} (Ready for incoming Wi-Fi frames)</div>', unsafe_allow_html=True)
-    else:
-        st.markdown(f'<div class="status-pill status-warn">⚪ STOPPED (Click "Start Listening" to accept wireless transmissions)</div>', unsafe_allow_html=True)
+    @st.fragment(run_every="2s")
+    def render_received_messages():
+        # Receiver Status Banner
+        if st.session_state.receiver.is_running():
+            st.markdown(f'<div class="status-pill status-ok">🟢 LISTENING on {rx_host}:{rx_port} (Ready for incoming Wi-Fi frames)</div>', unsafe_allow_html=True)
+        else:
+            st.markdown(f'<div class="status-pill status-warn">⚪ STOPPED (Click "Start Listening" to accept wireless transmissions)</div>', unsafe_allow_html=True)
 
-    # Receiver Metrics
-    r_hist = st.session_state.receiver.get_history()
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Total Frames Received", f"{st.session_state.receiver.total_received}")
-    m2.metric("Decoded Successfully", f"{st.session_state.receiver.total_decoded_ok}")
-    m3.metric("Checksum / Decode Errors", f"{st.session_state.receiver.total_errors}")
+        # Receiver Metrics
+        r_hist = st.session_state.receiver.get_history()
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Total Frames Received", f"{st.session_state.receiver.display_total_received}")
+        m2.metric("Decoded Successfully", f"{st.session_state.receiver.display_total_decoded_ok}")
+        m3.metric("Checksum / Decode Errors", f"{st.session_state.receiver.display_total_errors}")
 
-    st.markdown("### 📬 Received Messages Log")
-    if r_hist:
-        for item in reversed(r_hist[-15:]):
-            is_ok = (item['status_code'] == StatusCode.OK.name)
-            border_col = "#22c55e" if is_ok else "#ef4444"
-            st.markdown(f"""
-            <div style="border-left: 4px solid {border_col}; padding: 12px 16px; background: #f8fafc; border-radius: 6px; margin-bottom: 12px;">
-                <div style="display: flex; justify-content: space-between;">
-                    <span style="font-weight: 700; color: #0f172a;">Message Sequence #{item['seq_num']}</span>
-                    <span style="font-size: 13px; color: #64748b;">{item['timestamp']} &nbsp;|&nbsp; From: {item['sender']}</span>
-                </div>
-                <div style="margin-top: 6px; font-size: 14px;">
-                    <strong>Actual Reconstructed Text:</strong>
-                    <div style="background: white; border: 1px solid #e2e8f0; padding: 8px 12px; border-radius: 6px; margin-top: 4px; font-family: monospace;">
-                        {item['reconstructed_text']}
+        st.markdown("### 📬 Received Messages Log")
+        if r_hist:
+            for item in reversed(r_hist[-15:]):
+                is_ok = (item['status_code'] == StatusCode.OK.name)
+                border_col = "#22c55e" if is_ok else "#ef4444"
+                st.markdown(f"""
+                <div style="border-left: 4px solid {border_col}; padding: 12px 16px; background: #f8fafc; border-radius: 6px; margin-bottom: 12px;">
+                    <div style="display: flex; justify-content: space-between;">
+                        <span style="font-weight: 700; color: #0f172a;">Message Sequence #{item['seq_num']}</span>
+                        <span style="font-size: 13px; color: #64748b;">{item['timestamp']} &nbsp;|&nbsp; From: {item['sender']}</span>
+                    </div>
+                    <div style="margin-top: 6px; font-size: 14px;">
+                        <strong>Actual Reconstructed Text:</strong>
+                        <div style="background: white; border: 1px solid #e2e8f0; padding: 8px 12px; border-radius: 6px; margin-top: 4px; font-family: monospace;">
+                            {item['reconstructed_text']}
+                        </div>
+                    </div>
+                    <div style="margin-top: 6px; font-size: 12px; color: #475569;">
+                        Status: <strong>{item['status']}</strong> &nbsp;|&nbsp;
+                        Payload: {item['orig_size']} B &nbsp;|&nbsp;
+                        CRC32: {'Verified ✅' if item['checksum_verified'] else 'Failed ❌'} &nbsp;|&nbsp;
+                        Processing: {item['processing_duration_ms']:.2f} ms
                     </div>
                 </div>
-                <div style="margin-top: 6px; font-size: 12px; color: #475569;">
-                    Status: <strong>{item['status']}</strong> &nbsp;|&nbsp;
-                    Payload: {item['orig_size']} B &nbsp;|&nbsp;
-                    CRC32: {'Verified ✅' if item['checksum_verified'] else 'Failed ❌'} &nbsp;|&nbsp;
-                    Processing: {item['processing_duration_ms']:.2f} ms
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
 
-        if st.button("🗑️ Clear Received Messages"):
-            st.session_state.receiver.clear_history()
-            st.rerun()
-    else:
-        st.info("No incoming messages received yet. Send a message from TAB A or continuous stream from TAB C.")
+            if st.button("🗑️ Clear Received Messages", key="clear_rx_history_btn"):
+                st.session_state.receiver.clear_history()
+                st.rerun()
+        else:
+            st.info("No incoming messages received yet. Send a message from TAB A or continuous stream from TAB C.")
+
+    render_received_messages()
 
 
 # =============================================================================

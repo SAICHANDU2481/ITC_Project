@@ -1,0 +1,3 @@
+eb_no_db,num_trials,total_codeword_bits,total_info_bits,total_blocks,pre_fec_errors,pre_fec_ber,post_fec_errors,post_fec_ber,block_errors,fer,exact_recovery_rate_pct,error_suppression_gain
+4.0,10,38400,18960,600,2191,0.057057,25,0.0013186,19,0.031667,10.0,43.3
+7.0,10,38400,18960,600,461,0.012005,0,0.0,0,0.0,100.0,999999.0

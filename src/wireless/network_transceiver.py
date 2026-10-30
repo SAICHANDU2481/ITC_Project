@@ -189,6 +189,7 @@ class WirelessReceiver:
     performs checksum verification, runs LDPC and source decoding,
     reconstructs original messages, and sends acknowledgments.
     """
+    _active_instance: Optional['WirelessReceiver'] = None
 
     def __init__(self, host: str = "0.0.0.0", port: int = 8550):
         self.host = host
@@ -226,6 +227,7 @@ class WirelessReceiver:
             self._server_sock.listen(10)
             self._server_sock.settimeout(0.5)  # Periodic wake-up to check _is_running
             self._is_running = True
+            WirelessReceiver._active_instance = self
 
             self._thread = threading.Thread(target=self._listen_loop, daemon=True)
             self._thread.start()
@@ -243,6 +245,8 @@ class WirelessReceiver:
     def stop(self):
         """Stop receiver server gracefully."""
         self._is_running = False
+        if WirelessReceiver._active_instance is self:
+            WirelessReceiver._active_instance = None
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=1.5)
         if self._server_sock:
@@ -253,7 +257,12 @@ class WirelessReceiver:
             self._server_sock = None
 
     def is_running(self) -> bool:
-        return self._is_running
+        if self._is_running:
+            return True
+        active = WirelessReceiver._active_instance
+        if active and active is not self:
+            return active.is_running()
+        return False
 
     def _listen_loop(self):
         """Background thread accepting client connections."""
@@ -381,6 +390,8 @@ class WirelessReceiver:
 
     def get_history(self) -> List[Dict[str, Any]]:
         with self._lock:
+            if not self.history and WirelessReceiver._active_instance and WirelessReceiver._active_instance is not self:
+                return WirelessReceiver._active_instance.get_history()
             return list(self.history)
 
     def clear_history(self):
@@ -389,3 +400,24 @@ class WirelessReceiver:
             self.total_received = 0
             self.total_decoded_ok = 0
             self.total_errors = 0
+        active = WirelessReceiver._active_instance
+        if active and active is not self:
+            active.clear_history()
+
+    @property
+    def display_total_received(self) -> int:
+        if self.total_received > 0 or not WirelessReceiver._active_instance or WirelessReceiver._active_instance is self:
+            return self.total_received
+        return WirelessReceiver._active_instance.total_received
+
+    @property
+    def display_total_decoded_ok(self) -> int:
+        if self.total_decoded_ok > 0 or not WirelessReceiver._active_instance or WirelessReceiver._active_instance is self:
+            return self.total_decoded_ok
+        return WirelessReceiver._active_instance.total_decoded_ok
+
+    @property
+    def display_total_errors(self) -> int:
+        if self.total_errors > 0 or not WirelessReceiver._active_instance or WirelessReceiver._active_instance is self:
+            return self.total_errors
+        return WirelessReceiver._active_instance.total_errors
