@@ -25,5 +25,10 @@ desktop.ini
 scratch/
 scratch_*.py
 
+# Archives
+*.zip
+*.tar.gz
+*.rar
+
 # Streamlit local config
 .streamlit/
